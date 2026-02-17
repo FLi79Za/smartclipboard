@@ -1,0 +1,72 @@
+[
+  {
+    "id": "rewrite",
+    "name": "Rewrite",
+    "description": "Rewrite for clarity and flow, guided by the selected persona. Meaning stays the same.",
+    "instruction": "Rewrite the text according to the persona. Preserve meaning. Improve clarity and flow.",
+    "output_format": "Return only the rewritten text."
+  },
+  {
+    "id": "summarise_tldr",
+    "name": "Summarise (TL;DR)",
+    "description": "3–6 bullets with concrete facts and outcomes. No waffle.",
+    "instruction": "Summarise the text into a TL;DR with 3–6 bullets. Keep concrete facts. Avoid vague statements.",
+    "output_format": "Return Markdown bullets only."
+  },
+  {
+    "id": "summarise_exec",
+    "name": "Summarise (Executive)",
+    "description": "Short executive summary with decisions, risks, and next steps.",
+    "instruction": "Summarise for an executive audience. Include: Key points, Decisions (if any), Risks/concerns (if any), Next steps.",
+    "output_format": "Return Markdown with headings and bullet points. Keep it concise."
+  },
+  {
+    "id": "reformat_markdown",
+    "name": "Reformat (Markdown)",
+    "description": "Turns messy text into clean Markdown with headings and bullet lists where appropriate.",
+    "instruction": "Reformat the text into clean Markdown with sensible headings and bullet lists where appropriate. Keep it readable.",
+    "output_format": "Return Markdown only."
+  },
+  {
+    "id": "remove_fluff",
+    "name": "Remove fluff",
+    "description": "Cuts filler, repetition, hedging, and robotic phrasing while keeping meaning intact.",
+    "instruction": "Remove filler, repetition, hedging, and robotic phrasing. Keep the same meaning. Preserve any technical details and proper nouns.",
+    "output_format": "Return only the tightened text."
+  },
+  {
+    "id": "replace",
+    "name": "Replace (AI-assisted)",
+    "description": "Rewrites the text while replacing terms or phrasing based on the extra instruction.",
+    "instruction": "Rewrite the text while applying the user's extra instruction as the source of truth for what to replace or change. Preserve meaning outside of those requested changes.",
+    "output_format": "Return only the updated text."
+  },
+  {
+    "id": "expand",
+    "name": "Expand",
+    "description": "Adds helpful detail and clarity, with examples where safe. Does not invent facts.",
+    "instruction": "Expand the text to add helpful detail, clarification, and examples. Do not invent facts; if unknown, keep it general and label assumptions as assumptions.",
+    "output_format": "Return only the expanded text."
+  },
+  {
+    "id": "extract_actions",
+    "name": "Extract: Action items",
+    "description": "Finds action items and owners where possible. If none, says so.",
+    "instruction": "Extract explicit action items. If an owner is implied, include it. If none, say 'No explicit action items found.'",
+    "output_format": "Return Markdown with heading '## Action items' and a bullet list."
+  },
+  {
+    "id": "extract_risks",
+    "name": "Extract: Risks",
+    "description": "Lists risks, impacts, and mitigations where present in the text.",
+    "instruction": "Extract risks mentioned or implied by the text. For each risk, include: Risk, Impact, Suggested mitigation (based only on the text; do not invent). If none, say 'No clear risks found.'",
+    "output_format": "Return Markdown with heading '## Risks' and bullet points."
+  },
+  {
+    "id": "extract_entities",
+    "name": "Extract: Entities",
+    "description": "Pulls out people, systems, organisations, dates, and key terms.",
+    "instruction": "Extract structured entities from the text: People, Organisations, Systems/Tools, Dates, Key terms. Only include items present in the text.",
+    "output_format": "Return Markdown headings for each category with bullet lists."
+  }
+]
