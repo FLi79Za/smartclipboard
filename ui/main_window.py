@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QTextEdit,
     QVBoxLayout,
     QWidget,
+    QAbstractItemView,
 )
 
 from core.db import ClipDB, Clip
@@ -112,7 +113,6 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Smart Clipboard (MVP)")
         self.resize(1320, 850)
 
-        # Load config
         self.personas = self._load_json(app_root / "config" / "personas.json")
         self.actions = self._load_json(app_root / "config" / "actions.json")
 
@@ -124,26 +124,21 @@ class MainWindow(QMainWindow):
         self._action_list = self.actions if isinstance(self.actions, list) else []
         self._action_map = {a.get("id"): a for a in self._action_list if isinstance(a, dict)}
 
-        # UI
         self._build_ui()
 
-        # Watcher
         self.watcher = ClipboardWatcher(QApplication.instance(), poll_interval_ms=self.settings.value.poll_interval_ms)
         self.watcher.on_new_text(self._on_clipboard_text)
         self._apply_capture_settings_to_watcher()
         self.watcher.start()
 
-        # In-app hotkey (global hotkeys later)
         self._pause_shortcut = QShortcut(QKeySequence("Ctrl+Shift+P"), self)
         self._pause_shortcut.activated.connect(self.toggle_capture_pause)
 
-        # Debug updater
         self._dbg_timer = QTimer(self)
         self._dbg_timer.setInterval(300)
         self._dbg_timer.timeout.connect(self._update_capture_debug)
         self._dbg_timer.start()
 
-        # Initial load
         self.refresh_history()
         self.refresh_models()
         self._refresh_persona_info()
@@ -151,7 +146,6 @@ class MainWindow(QMainWindow):
         self._update_capture_status_label()
         self._update_capture_debug()
 
-        # Nudge once after UI stabilises
         QTimer.singleShot(350, self.watcher.poke)
 
     # ---------------- UI ----------------
@@ -168,6 +162,7 @@ class MainWindow(QMainWindow):
         left_layout.addWidget(QLabel("Clipboard History"))
 
         self.history_list = QListWidget()
+        self.history_list.setSelectionMode(QAbstractItemView.ExtendedSelection)  # ✅ MULTI SELECT
         self.history_list.itemSelectionChanged.connect(self._on_history_select)
         self.history_list.setContextMenuPolicy(Qt.CustomContextMenu)
         self.history_list.customContextMenuRequested.connect(self._show_history_menu)
@@ -176,12 +171,15 @@ class MainWindow(QMainWindow):
         hist_btn_row = QHBoxLayout()
         self.btn_pin = QPushButton("Pin/Unpin")
         self.btn_pin.clicked.connect(self.toggle_pin_selected)
-        self.btn_delete = QPushButton("Delete")
-        self.btn_delete.clicked.connect(self.delete_selected)
+        self.btn_delete = QPushButton("Delete selected")
+        self.btn_delete.clicked.connect(self.delete_selected)  # now deletes many
+        self.btn_delete_all = QPushButton("Delete all…")
+        self.btn_delete_all.clicked.connect(self.delete_all_clips)
         self.btn_copyback = QPushButton("Copy back")
         self.btn_copyback.clicked.connect(self.copy_selected_to_clipboard)
         hist_btn_row.addWidget(self.btn_pin)
         hist_btn_row.addWidget(self.btn_delete)
+        hist_btn_row.addWidget(self.btn_delete_all)
         hist_btn_row.addWidget(self.btn_copyback)
         left_layout.addLayout(hist_btn_row)
 
@@ -234,7 +232,6 @@ class MainWindow(QMainWindow):
         right_layout = QVBoxLayout(right)
         right_layout.addWidget(QLabel("AI Actions"))
 
-        # Capture controls
         cap_row = QHBoxLayout()
         self.capture_status = QLabel("")
         self.capture_status.setStyleSheet("font-weight: 600;")
@@ -254,7 +251,6 @@ class MainWindow(QMainWindow):
         cap_hint.setWordWrap(True)
         right_layout.addWidget(cap_hint)
 
-        # Persona
         self.persona_combo = QComboBox()
         for p in self.personas.get("personas", []):
             if isinstance(p, dict) and "id" in p and "name" in p:
@@ -269,7 +265,6 @@ class MainWindow(QMainWindow):
         self.persona_info.setStyleSheet("color: #bbbbbb;")
         right_layout.addWidget(self.persona_info)
 
-        # Model
         model_row = QHBoxLayout()
         self.model_combo = QComboBox()
         self.model_combo.setEnabled(False)
@@ -281,7 +276,6 @@ class MainWindow(QMainWindow):
         right_layout.addWidget(QLabel("Model"))
         right_layout.addLayout(model_row)
 
-        # Poll interval
         poll_row = QHBoxLayout()
         poll_row.addWidget(QLabel("Clipboard poll (ms)"))
         self.poll_spin = QSpinBox()
@@ -291,7 +285,6 @@ class MainWindow(QMainWindow):
         poll_row.addWidget(self.poll_spin)
         right_layout.addLayout(poll_row)
 
-        # Action
         self.action_combo = QComboBox()
         for a in self._action_list:
             if isinstance(a, dict):
@@ -305,7 +298,6 @@ class MainWindow(QMainWindow):
         self.action_info.setStyleSheet("color: #bbbbbb;")
         right_layout.addWidget(self.action_info)
 
-        # Extra instruction
         right_layout.addWidget(QLabel("Extra instruction (optional, highest priority)"))
         self.extra_instruction = QTextEdit()
         self.extra_instruction.setPlaceholderText(
@@ -314,13 +306,11 @@ class MainWindow(QMainWindow):
         self.extra_instruction.setFixedHeight(90)
         right_layout.addWidget(self.extra_instruction)
 
-        # Apply source
         right_layout.addWidget(QLabel("Apply to"))
         self.apply_source = QComboBox()
         self.apply_source.addItems(["Composer", "Selected clip"])
         right_layout.addWidget(self.apply_source)
 
-        # Output target
         right_layout.addWidget(QLabel("Output target"))
         self.out_group = QButtonGroup(self)
         self.rb_replace = QRadioButton("Replace composer")
@@ -340,7 +330,6 @@ class MainWindow(QMainWindow):
         self._select_output_radio(self.settings.value.output_target)
         self.out_group.buttonClicked.connect(self._on_output_target_changed)
 
-        # Run + Preview
         btn_row = QHBoxLayout()
         self.btn_run = QPushButton("Run action")
         self.btn_run.clicked.connect(self.run_action)
@@ -365,7 +354,6 @@ class MainWindow(QMainWindow):
         layout = QHBoxLayout(root)
         layout.addWidget(splitter)
 
-        # Menu
         file_menu = self.menuBar().addMenu("File")
         act_open_data = QAction("Open data folder", self)
         act_open_data.triggered.connect(self.open_data_folder)
@@ -380,11 +368,38 @@ class MainWindow(QMainWindow):
         act_open_settings.triggered.connect(self.open_settings_file)
         capture_menu.addAction(act_open_settings)
 
+        edit_menu = self.menuBar().addMenu("Edit")
+        act_delete_selected = QAction("Delete selected clips", self)
+        act_delete_selected.setShortcut(QKeySequence.Delete)
+        act_delete_selected.triggered.connect(self.delete_selected)
+        edit_menu.addAction(act_delete_selected)
+
+        act_delete_all = QAction("Delete all clips…", self)
+        act_delete_all.triggered.connect(self.delete_all_clips)
+        edit_menu.addAction(act_delete_all)
+
+    # ---------------- Multi selection helpers ----------------
+
+    def selected_clip_ids(self) -> List[int]:
+        ids: List[int] = []
+        for it in self.history_list.selectedItems():
+            cid = it.data(Qt.UserRole)
+            if cid:
+                ids.append(int(cid))
+        return ids
+
+    def selected_clip_id(self) -> Optional[int]:
+        ids = self.selected_clip_ids()
+        return ids[0] if ids else None
+
+    def selected_clip(self) -> Optional[Clip]:
+        cid = self.selected_clip_id()
+        return self.db.get_clip(cid) if cid else None
+
     # ---------------- Capture ----------------
 
     def _apply_capture_settings_to_watcher(self) -> None:
         s = self.settings.value
-        # The simplified watcher accepts settle_delay_ms for compatibility but ignores it.
         self.watcher.configure(
             capture_paused=getattr(s, "capture_paused", False),
             capture_mode=getattr(s, "capture_mode", "blocklist"),
@@ -461,38 +476,65 @@ class MainWindow(QMainWindow):
 
         self.history_list.blockSignals(False)
 
-    def selected_clip_id(self) -> Optional[int]:
-        items = self.history_list.selectedItems()
-        if not items:
-            return None
-        return items[0].data(Qt.UserRole)
-
-    def selected_clip(self) -> Optional[Clip]:
-        cid = self.selected_clip_id()
-        return self.db.get_clip(cid) if cid else None
-
     def _on_history_select(self) -> None:
         return
 
     def toggle_pin_selected(self) -> None:
-        c = self.selected_clip()
-        if not c:
+        # If multiple selected, flip each
+        ids = self.selected_clip_ids()
+        if not ids:
             return
-        self.db.set_pinned(c.id, 0 if c.pinned else 1)
+        for cid in ids:
+            c = self.db.get_clip(cid)
+            if c:
+                self.db.set_pinned(cid, 0 if c.pinned else 1)
         self.refresh_history()
 
     def delete_selected(self) -> None:
-        c = self.selected_clip()
-        if not c:
+        ids = self.selected_clip_ids()
+        if not ids:
             return
-        self.db.delete_clip(c.id)
+
+        msg = f"Delete {len(ids)} selected clip(s)?"
+        if QMessageBox.question(self, "Confirm delete", msg) != QMessageBox.Yes:
+            return
+
+        self.db.delete_clips(ids)
+        self.refresh_history()
+
+    def delete_all_clips(self) -> None:
+        box = QMessageBox(self)
+        box.setWindowTitle("Delete all clips")
+        box.setText("Delete all clips from history?")
+        box.setInformativeText("You can optionally keep pinned clips.")
+        btn_all = box.addButton("Delete ALL", QMessageBox.DestructiveRole)
+        btn_keep = box.addButton("Delete all (keep pinned)", QMessageBox.DestructiveRole)
+        btn_cancel = box.addButton("Cancel", QMessageBox.RejectRole)
+        box.setDefaultButton(btn_cancel)
+        box.exec()
+
+        clicked = box.clickedButton()
+        if clicked == btn_cancel:
+            return
+
+        if clicked == btn_keep:
+            self.db.delete_all_clips(keep_pinned=True)
+        else:
+            self.db.delete_all_clips(keep_pinned=False)
+
         self.refresh_history()
 
     def copy_selected_to_clipboard(self) -> None:
-        c = self.selected_clip()
-        if not c:
+        # If multiple selected, copy joined with blank lines
+        ids = self.selected_clip_ids()
+        if not ids:
             return
-        QApplication.instance().clipboard().setText(c.content)
+        clips = [self.db.get_clip(cid) for cid in ids]
+        clips = [c for c in clips if c]
+        if not clips:
+            return
+        joined = "\n\n".join(c.content for c in clips)
+        QApplication.instance().clipboard().setText(joined)
 
     def copy_composer_to_clipboard(self) -> None:
         txt = self.composer.toPlainText()
@@ -501,20 +543,26 @@ class MainWindow(QMainWindow):
         QApplication.instance().clipboard().setText(txt)
 
     def send_selected_to_composer(self, mode: str = "append") -> None:
-        c = self.selected_clip()
-        if not c:
+        ids = self.selected_clip_ids()
+        if not ids:
             return
+        clips = [self.db.get_clip(cid) for cid in ids]
+        clips = [c for c in clips if c]
+        if not clips:
+            return
+
+        payload = self._separator_text().join(c.content for c in clips)
 
         if mode == "replace":
-            self.composer.setPlainText(c.content)
+            self.composer.setPlainText(payload)
             return
 
-        sep = self._separator_text()
         existing = self.composer.toPlainText()
+        sep = self._separator_text()
         if existing.strip():
-            self.composer.setPlainText(existing + sep + c.content)
+            self.composer.setPlainText(existing + sep + payload)
         else:
-            self.composer.setPlainText(c.content)
+            self.composer.setPlainText(payload)
 
     def _separator_text(self) -> str:
         choice = self.separator_combo.currentText()
@@ -540,10 +588,17 @@ class MainWindow(QMainWindow):
         return p
 
     def save_selected_clip_to_file(self) -> None:
-        c = self.selected_clip()
-        if not c:
+        ids = self.selected_clip_ids()
+        if not ids:
             return
-        self._save_text_as_dialog(c.content, suggested=f"clip_{c.id}.txt")
+        clips = [self.db.get_clip(cid) for cid in ids]
+        clips = [c for c in clips if c]
+        if not clips:
+            return
+
+        text = "\n\n".join(c.content for c in clips)
+        suggested = f"clips_{ids[0]}_{len(ids)}.txt" if len(ids) > 1 else f"clip_{ids[0]}.txt"
+        self._save_text_as_dialog(text, suggested=suggested)
 
     def save_composer_to_file(self) -> None:
         txt = self.composer.toPlainText()
@@ -593,7 +648,6 @@ class MainWindow(QMainWindow):
                 p.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
             else:
                 p.write_text(text, encoding="utf-8")
-
             self.status_label.setText(f"Saved: {p}")
         except Exception as e:
             QMessageBox.critical(self, "Save failed", str(e))
@@ -814,8 +868,8 @@ class MainWindow(QMainWindow):
     # ---------------- Context menu ----------------
 
     def _show_history_menu(self, pos) -> None:
-        c = self.selected_clip()
-        if not c:
+        ids = self.selected_clip_ids()
+        if not ids:
             return
 
         menu = QMenu(self)
@@ -824,8 +878,10 @@ class MainWindow(QMainWindow):
         a_replace = menu.addAction("Replace composer")
         menu.addSeparator()
         a_pin = menu.addAction("Pin/Unpin")
-        a_save = menu.addAction("Save clip to file…")
-        a_del = menu.addAction("Delete")
+        a_save = menu.addAction("Save clip(s) to file…")
+        menu.addSeparator()
+        a_del = menu.addAction("Delete selected")
+        a_del_all = menu.addAction("Delete all…")
 
         chosen = menu.exec(self.history_list.mapToGlobal(pos))
         if chosen == a_copy:
@@ -840,6 +896,8 @@ class MainWindow(QMainWindow):
             self.save_selected_clip_to_file()
         elif chosen == a_del:
             self.delete_selected()
+        elif chosen == a_del_all:
+            self.delete_all_clips()
 
     # ---------------- Helpers ----------------
 
