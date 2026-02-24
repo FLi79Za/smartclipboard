@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QListWidget,
     QListWidgetItem,
     QMainWindow,
@@ -110,6 +111,8 @@ class MainWindow(QMainWindow):
         self.settings = settings
         self.db = db
 
+        self._history_search_text = ""
+
         self.setWindowTitle("Smart Clipboard (MVP)")
         self.resize(1320, 850)
 
@@ -133,6 +136,9 @@ class MainWindow(QMainWindow):
 
         self._pause_shortcut = QShortcut(QKeySequence("Ctrl+Shift+P"), self)
         self._pause_shortcut.activated.connect(self.toggle_capture_pause)
+
+        self._find_shortcut = QShortcut(QKeySequence("Ctrl+F"), self)
+        self._find_shortcut.activated.connect(self._focus_search)
 
         self._dbg_timer = QTimer(self)
         self._dbg_timer.setInterval(300)
@@ -161,8 +167,22 @@ class MainWindow(QMainWindow):
         left_layout = QVBoxLayout(left)
         left_layout.addWidget(QLabel("Clipboard History"))
 
+        # Search row
+        search_row = QHBoxLayout()
+        self.history_search = QLineEdit()
+        self.history_search.setPlaceholderText("Search history… (Ctrl+F)")
+        self.history_search.textChanged.connect(self._on_search_changed)
+
+        self.btn_clear_search = QPushButton("✕")
+        self.btn_clear_search.setFixedWidth(32)
+        self.btn_clear_search.clicked.connect(self._clear_search)
+
+        search_row.addWidget(self.history_search, 1)
+        search_row.addWidget(self.btn_clear_search)
+        left_layout.addLayout(search_row)
+
         self.history_list = QListWidget()
-        self.history_list.setSelectionMode(QAbstractItemView.ExtendedSelection)  # ✅ MULTI SELECT
+        self.history_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.history_list.itemSelectionChanged.connect(self._on_history_select)
         self.history_list.setContextMenuPolicy(Qt.CustomContextMenu)
         self.history_list.customContextMenuRequested.connect(self._show_history_menu)
@@ -172,7 +192,7 @@ class MainWindow(QMainWindow):
         self.btn_pin = QPushButton("Pin/Unpin")
         self.btn_pin.clicked.connect(self.toggle_pin_selected)
         self.btn_delete = QPushButton("Delete selected")
-        self.btn_delete.clicked.connect(self.delete_selected)  # now deletes many
+        self.btn_delete.clicked.connect(self.delete_selected)
         self.btn_delete_all = QPushButton("Delete all…")
         self.btn_delete_all.clicked.connect(self.delete_all_clips)
         self.btn_copyback = QPushButton("Copy back")
@@ -192,7 +212,7 @@ class MainWindow(QMainWindow):
         hist_btn_row2.addWidget(self.btn_send_replace)
         left_layout.addLayout(hist_btn_row2)
 
-        self.btn_save_clip = QPushButton("Save clip to file…")
+        self.btn_save_clip = QPushButton("Save clip(s) to file…")
         self.btn_save_clip.clicked.connect(self.save_selected_clip_to_file)
         left_layout.addWidget(self.btn_save_clip)
 
@@ -354,6 +374,7 @@ class MainWindow(QMainWindow):
         layout = QHBoxLayout(root)
         layout.addWidget(splitter)
 
+        # Menus
         file_menu = self.menuBar().addMenu("File")
         act_open_data = QAction("Open data folder", self)
         act_open_data.triggered.connect(self.open_data_folder)
@@ -377,6 +398,24 @@ class MainWindow(QMainWindow):
         act_delete_all = QAction("Delete all clips…", self)
         act_delete_all.triggered.connect(self.delete_all_clips)
         edit_menu.addAction(act_delete_all)
+
+        act_find = QAction("Find in history", self)
+        act_find.setShortcut(QKeySequence("Ctrl+F"))
+        act_find.triggered.connect(self._focus_search)
+        edit_menu.addAction(act_find)
+
+    # ---------------- Search ----------------
+
+    def _focus_search(self) -> None:
+        self.history_search.setFocus()
+        self.history_search.selectAll()
+
+    def _clear_search(self) -> None:
+        self.history_search.setText("")
+
+    def _on_search_changed(self, txt: str) -> None:
+        self._history_search_text = (txt or "").strip()
+        self.refresh_history()
 
     # ---------------- Multi selection helpers ----------------
 
@@ -463,7 +502,8 @@ class MainWindow(QMainWindow):
     def refresh_history(self) -> None:
         self.history_list.blockSignals(True)
         self.history_list.clear()
-        clips = self.db.list_clips(limit=300)
+
+        clips = self.db.list_clips(limit=300, search=self._history_search_text)
 
         for c in clips:
             preview = c.content.replace("\n", " ").strip()
@@ -480,7 +520,6 @@ class MainWindow(QMainWindow):
         return
 
     def toggle_pin_selected(self) -> None:
-        # If multiple selected, flip each
         ids = self.selected_clip_ids()
         if not ids:
             return
@@ -494,11 +533,9 @@ class MainWindow(QMainWindow):
         ids = self.selected_clip_ids()
         if not ids:
             return
-
         msg = f"Delete {len(ids)} selected clip(s)?"
         if QMessageBox.question(self, "Confirm delete", msg) != QMessageBox.Yes:
             return
-
         self.db.delete_clips(ids)
         self.refresh_history()
 
@@ -525,7 +562,6 @@ class MainWindow(QMainWindow):
         self.refresh_history()
 
     def copy_selected_to_clipboard(self) -> None:
-        # If multiple selected, copy joined with blank lines
         ids = self.selected_clip_ids()
         if not ids:
             return
@@ -619,7 +655,6 @@ class MainWindow(QMainWindow):
 
     def _default_export_name(self, prefix: str = "SmartClipboard") -> str:
         from datetime import datetime
-
         ts = datetime.now().strftime("%Y-%m-%d_%H%M%S")
         return f"{prefix}_{ts}.txt"
 
@@ -654,7 +689,6 @@ class MainWindow(QMainWindow):
 
     def _local_iso(self) -> str:
         from datetime import datetime
-
         return datetime.now().isoformat(timespec="seconds")
 
     # ---------------- Ollama models ----------------
@@ -854,7 +888,6 @@ class MainWindow(QMainWindow):
             self.composer.setPlainText((existing + sep + out) if existing.strip() else out)
         elif target == "new_versioned_clip":
             from core.util import hash_text
-
             self.db.add_text_clip(out, hash_text(out), parent_id=parent_id, version_note=action_name)
             self.refresh_history()
         else:

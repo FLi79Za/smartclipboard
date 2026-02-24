@@ -33,11 +33,16 @@ class ClipDB:
         cols: Dict[str, str] = {}
         rows = con.execute(f"PRAGMA table_info({table})").fetchall()
         for r in rows:
+            # PRAGMA table_info returns: cid, name, type, notnull, dflt_value, pk
             cols[str(r[1])] = str(r[2] or "")
         return cols
 
     def _ensure_columns(self, con: sqlite3.Connection) -> None:
+        """
+        Lightweight migration: add missing columns to existing DBs.
+        """
         cols = self._table_columns(con, "clips")
+        # Add columns if missing (SQLite supports ALTER TABLE ADD COLUMN)
         if "pinned" not in cols:
             con.execute("ALTER TABLE clips ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0")
         if "tags" not in cols:
@@ -63,7 +68,11 @@ class ClipDB:
                 )
                 """
             )
+
+            # Migrate older DBs that were created before new columns existed
             self._ensure_columns(con)
+
+            # Indexes (safe to run repeatedly)
             con.execute("CREATE INDEX IF NOT EXISTS idx_clips_hash ON clips(content_hash)")
             con.execute("CREATE INDEX IF NOT EXISTS idx_clips_created ON clips(created_at)")
             con.execute("CREATE INDEX IF NOT EXISTS idx_clips_pinned ON clips(pinned)")
@@ -83,9 +92,11 @@ class ClipDB:
             return None
 
         from datetime import datetime
+
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         with self._conn() as con:
+            # Ensure schema exists even if DB file was swapped in
             self._ensure_columns(con)
 
             row = con.execute("SELECT id FROM clips WHERE content_hash = ?", (content_hash,)).fetchone()
@@ -101,36 +112,17 @@ class ClipDB:
             )
             return int(cur.lastrowid)
 
-    def list_clips(self, limit: int = 200, search: Optional[str] = None) -> List[Clip]:
-        """
-        If search is provided, filters by content/tags substring (case-insensitive).
-        Always sorts pinned first, then newest first.
-        """
-        search = (search or "").strip()
+    def list_clips(self, limit: int = 200) -> List[Clip]:
         with self._conn() as con:
             self._ensure_columns(con)
-
-            if search:
-                like = f"%{search}%"
-                rows = con.execute(
-                    """
-                    SELECT * FROM clips
-                    WHERE (content LIKE ? COLLATE NOCASE)
-                       OR (tags LIKE ? COLLATE NOCASE)
-                    ORDER BY pinned DESC, id DESC
-                    LIMIT ?
-                    """,
-                    (like, like, int(limit)),
-                ).fetchall()
-            else:
-                rows = con.execute(
-                    """
-                    SELECT * FROM clips
-                    ORDER BY pinned DESC, id DESC
-                    LIMIT ?
-                    """,
-                    (int(limit),),
-                ).fetchall()
+            rows = con.execute(
+                """
+                SELECT * FROM clips
+                ORDER BY pinned DESC, id DESC
+                LIMIT ?
+                """,
+                (int(limit),),
+            ).fetchall()
 
         out: List[Clip] = []
         for r in rows:
@@ -184,6 +176,7 @@ class ClipDB:
         ids = [int(x) for x in (clip_ids or []) if x]
         if not ids:
             return 0
+
         placeholders = ",".join(["?"] * len(ids))
         with self._conn() as con:
             cur = con.execute(f"DELETE FROM clips WHERE id IN ({placeholders})", ids)
